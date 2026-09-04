@@ -27,12 +27,33 @@ jobs:
         config:
           - os: windows-latest
             arch: win-x64
+            target: ""
           - os: windows-latest
             arch: win-x86
+            target: i686-pc-windows-msvc
           - os: ubuntu-latest
             arch: linux-x64
+            target: ""
           - os: macos-latest
             arch: macos-arm64
+            target: ""
+          # Intel macOS, CROSS-COMPILED on the Apple Silicon runner.
+          #
+          # This target was dropped in c4f15b7 ("ci: drop macOS x64 support
+          # (macos-13 retired)") when GitHub retired the last Intel runner.
+          # It does not need one: the macOS SDK on an arm64 runner targets
+          # x86_64 perfectly well, which is how universal binaries have always
+          # been built. What it cannot do is RUN the result, so the test and
+          # --help steps are skipped for this entry alone.
+          #
+          # It matters because wlink is the upload tool for the CH32H41x
+          # Arduino core, and an Arduino package whose other tools support a
+          # host but whose uploader does not fails to install on that host --
+          # arduino-cli resolves every toolsDependency or none.
+          - os: macos-latest
+            arch: macos-x64
+            target: x86_64-apple-darwin
+            cross: true
     runs-on: ${{ matrix.config.os }}
 
     steps:
@@ -42,8 +63,9 @@ jobs:
       run: sudo apt-get update && sudo apt-get install -y libudev-dev
     - name: Set target
       run: |
-        if [[ "${{ matrix.config.arch }}" == "win-x86" ]]; then
-          echo TARGET="--target i686-pc-windows-msvc" >> $GITHUB_ENV
+        if [[ -n "${{ matrix.config.target }}" ]]; then
+          rustup target add ${{ matrix.config.target }}
+          echo TARGET="--target ${{ matrix.config.target }}" >> $GITHUB_ENV
         else
           echo TARGET="" >> $GITHUB_ENV
         fi
@@ -51,18 +73,23 @@ jobs:
     - name: Build
       run: cargo build --release ${{ env.TARGET }}
     - name: Run tests
+      if: ${{ !matrix.config.cross }}
       run: cargo test --release ${{ env.TARGET }} --verbose
     - name: Run help
+      if: ${{ !matrix.config.cross }}
       run: cargo run --release ${{ env.TARGET }} -- --help
 
     - name: Prepare artifacts
       run: |
-        if [[ "${{ matrix.config.arch }}" == "win-x64" ]]; then
-          WLINK_EXE="target/release/wlink.exe"
-        elif [[ "${{ matrix.config.arch }}" == "win-x86" ]]; then
-          WLINK_EXE="target/i686-pc-windows-msvc/release/wlink.exe"
+        if [[ -n "${{ matrix.config.target }}" ]]; then
+          OUT_DIR="target/${{ matrix.config.target }}/release"
         else
-          WLINK_EXE="target/release/wlink"
+          OUT_DIR="target/release"
+        fi
+        if [[ "${{ runner.os }}" == "Windows" ]]; then
+          WLINK_EXE="$OUT_DIR/wlink.exe"
+        else
+          WLINK_EXE="$OUT_DIR/wlink"
         fi
 
         mkdir wlink-${{ matrix.config.arch }}
