@@ -15,6 +15,18 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# The release job attaches assets, which is a write to the repository. Without
+# this the run fails at the last step with
+#
+#   Resource not accessible by integration - .../releases#update-a-release
+#
+# after every target has already built, because an organisation whose default
+# workflow permissions are read-only hands GITHUB_TOKEN no contents scope.
+# Upstream does not need the block; an organisation with the safer default
+# does, and stating it here is better than relying on a setting in a web UI.
+permissions:
+  contents: write
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
