@@ -136,6 +136,12 @@ enum Commands {
         /// Reset mode
         #[arg(default_value = "quit")]
         mode: ResetMode,
+        /// Enable SDI print after reset
+        #[arg(long, default_value = "false")]
+        enable_sdi_print: bool,
+        /// Open serial port(SDI print) after reset
+        #[arg(long, default_value = "false")]
+        watch_serial: bool,
     },
     /// Debug, check status
     Status {},
@@ -177,9 +183,15 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // init simplelogger
+    // log timestamps in the local timezone instead of UTC,
+    // silently falling back to UTC if the local offset is unavailable
+    let log_config = simplelog::ConfigBuilder::new()
+        .set_time_offset_to_local()
+        .unwrap_or_else(|builder| builder)
+        .build();
     simplelog::TermLogger::init(
         cli.verbose.log_level_filter(),
-        simplelog::Config::default(),
+        log_config,
         simplelog::TerminalMode::Mixed,
         simplelog::ColorChoice::Auto,
     )
@@ -383,7 +395,11 @@ fn main() -> Result<()> {
                     log::info!("Protect Flash");
                     sess.protect_flash()?;
                 }
-                Commands::Reset { mode } => {
+                Commands::Reset {
+                    mode,
+                    enable_sdi_print,
+                    watch_serial,
+                } => {
                     log::info!("Reset {:?}", mode);
                     match mode {
                         ResetMode::Quit => {
@@ -403,7 +419,17 @@ fn main() -> Result<()> {
                             will_detach = false; // detach will resume the MCU
                         }
                     }
-                    sleep(Duration::from_millis(300));
+                    sleep(Duration::from_millis(500));
+                    if enable_sdi_print {
+                        sess.set_sdi_print_enabled(true)?;
+                        will_detach = false;
+                        log::info!("Now connect to the WCH-Link serial port to read SDI print");
+                    }
+                    if watch_serial {
+                        wlink::probe::watch_serial()?;
+                    } else {
+                        sleep(Duration::from_millis(300));
+                    }
                 }
                 Commands::Status {} => {
                     sess.dump_info()?;
